@@ -157,9 +157,10 @@ Are you trying to:
 
 ## Third Prompt
 Option C, what would be the impact of using  
-a) whole gene sequences including introns, genes vary in length,  
-b) only cDNA with alternative cDNA sequences, c) and yes chromosome 22 is a good candidate to test the ideas. 
-d) and how about pseudogenes
+1.  whole gene sequences including introns, genes vary in length,  
+1.  only cDNA with alternative cDNA sequences, 
+1.  and yes chromosome 22 is a good candidate to test the ideas. 
+1.  and how about pseudogenes
 
 ## Impact analysis of each approach:
 
@@ -286,6 +287,199 @@ How: Translate coding sequences, hash protein sequences
 
 Want me to outline the implementation workflow? Or need to decide on these parameters first?
 
+## Prompt
+1) exon-by-exon hashing and creating gene fingerprint (estimate how many exons in chromosome 22); protein coding genes only for now; I am interested in anylizing a triad: both parents and a child; 3) yes chromosome 22 from 1000 genome phase 3
 
+## Chromosome 22 exon statistics:
+
+**Protein-coding genes:** ~540 genes
+**Total exons:** ~4,800-5,000 exons
+- Range: 1 to 79 exons per gene
+- Median: ~7-8 exons per gene
+- Examples:
+  - Small: C22orf39 (1 exon)
+  - Large: LARGE1 (79 exons), NEB (162 exons if we had full gene on chr22)
+
+## Gene fingerprint structure:
+
+```
+Gene fingerprint = ordered list of exon hashes
+Example for a 5-exon gene:
+{
+  "gene": "APOL1",
+  "exons": [
+    {"exon_1": "5d41402abc4b2a76b9719d911017c592"},
+    {"exon_2": "7d793037a0760186574b0282f2f435e7"},
+    {"exon_3": "6cd3556deb0da54bca060b4c39479839"},
+    ...
+  ],
+  "gene_hash": "hash_of_concatenated_exon_hashes"
+}
+```
+
+## Triad inheritance pattern:
+
+**Expected outcome:**
+- Each child exon hash should match EITHER mother OR father
+- Can track which parent each exon came from
+- Detect recombination breakpoints within genes
+- Mendelian violations = sequencing errors or mutations
+
+```
+Child exon:  hash_X
+Mother exons: [hash_X, hash_Y]  ← matches maternal haplotype 1
+Father exons: [hash_Z, hash_W]
+```
+
+## Workflow outline:
+
+### Phase 1: Data acquisition
+1. Download 1000 Genomes Phase 3 chr22 VCF
+2. Download GRCh37 reference genome chr22
+3. Get gene annotations (GENCODE or Ensembl GTF)
+
+### Phase 2: Sequence reconstruction
+4. Extract phased genotypes for trio
+5. Apply variants to reference → get actual sequences per haplotype
+6. Extract exon coordinates from GTF
+
+### Phase 3: Hashing
+7. Extract each exon sequence (maternal & paternal haplotypes)
+8. Hash each exon (MD5)
+9. Create gene fingerprints
+
+### Phase 4: Analysis
+10. Compare child exons to parent exons
+11. Track inheritance patterns
+12. Identify recombination events
+
+## Before coding, need to know:
+
+**1. Do you have 1000 Genomes data already, or need download instructions?**
+
+**2. Specific trio to analyze?**
+- Family ID from 1000 Genomes (e.g., "CEU trio NA12878")?
+- Or any random trio from dataset?
+- Population preference (CEU, YRI, CHB, etc.)?
+
+**3. Computational environment?**
+- Python libraries already installed (pysam, biopython)?
+- Prefer downloading full VCF or query-based access?
+- Memory constraints (chr22 VCF is ~500MB compressed)?
+
+**4. Output format preference?**
+- JSON file with gene fingerprints?
+- CSV/TSV for easy viewing?
+- Database (SQLite)?
+
+**Popular trio for testing:** NA12878 (child), NA12891 (father), NA12892 (mother) from CEU population - well-characterized benchmark.
+
+Want me to start with data download/setup instructions, or do you have specific trio in mind?
+
+
+## Download URLs for NA12878 trio analysis:
+
+### 1. 1000 Genomes Phase 3 - Chromosome 22 VCF
+
+**Main VCF file:**
+```
+http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.chr22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz
+```
+
+**Index file (needed):**
+```
+http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.chr22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz.tbi
+```
+
+**Size:** ~470 MB compressed
+
+### 2. Reference Genome - GRCh37 (hg19) Chromosome 22
+
+```
+http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/human_g1k_v37.fasta.gz
+```
+
+**Index (if needed):**
+```
+http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/human_g1k_v37.fasta.fai
+```
+
+**Alternative - chromosome 22 only:**
+```
+http://hgdownload.cse.ucsc.edu/goldenPath/hg19/chromosomes/chr22.fa.gz
+```
+
+### 3. Gene Annotations - GENCODE v19 (matches GRCh37)
+
+**GTF file:**
+```
+https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_19/gencode.v19.annotation.gtf.gz
+```
+
+**Alternative - chromosome 22 only:**
+You can filter after download, or use Ensembl:
+```
+http://ftp.ensembl.org/pub/grch37/current/gtf/homo_sapiens/Homo_sapiens.GRCh37.87.gtf.gz
+```
+
+### 4. Sample/Pedigree Information
+
+**Pedigree file (identifies trios):**
+```
+http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/integrated_call_samples_v3.20130502.ALL.panel
+```
+
+**Sample information:**
+- **Child:** NA12878 (female, CEU population)
+- **Father:** NA12891
+- **Mother:** NA12892
+
+### Quick download script:
+
+```bash
+#!/bin/bash
+# Create working directory
+mkdir -p 1000g_chr22_analysis
+cd 1000g_chr22_analysis
+
+# Download VCF
+wget http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.chr22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz
+wget http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.chr22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz.tbi
+
+# Download reference (full genome - includes chr22)
+wget http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/human_g1k_v37.fasta.gz
+gunzip human_g1k_v37.fasta.gz
+
+# Download annotations
+wget https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_19/gencode.v19.annotation.gtf.gz
+gunzip gencode.v19.annotation.gtf.gz
+
+# Download sample info
+wget http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/integrated_call_samples_v3.20130502.ALL.panel
+
+echo "Download complete"
+```
+
+### Notes:
+
+1. **VCF is phased** - genotypes like `0|1` (haplotype 1 | haplotype 2)
+2. **Reference uses "22" not "chr22"** - chromosome naming: just "22"
+3. **Total download size:** ~3-4 GB
+4. **Alternative smaller download:** Extract only trio samples from VCF using bcftools
+
+### Optional - Extract only trio from VCF (saves space):
+
+```bash
+# After downloading VCF, extract only trio
+bcftools view -s NA12878,NA12891,NA12892 \
+  ALL.chr22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz \
+  -O z -o trio_chr22.vcf.gz
+
+bcftools index trio_chr22.vcf.gz
+```
+
+**This reduces file from 470MB to ~5MB**
+
+Do you want me to proceed with the analysis pipeline code, or do you need help with any installation/setup first?
 
 
